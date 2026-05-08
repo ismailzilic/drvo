@@ -1,49 +1,51 @@
+#include <algorithm>
 #include <filesystem>
-#include <iomanip>
 #include <iostream>
-#include <string>
+#include <vector>
 
 #define BLUE "\033[34m"
 #define WHITE "\033[37m"
 #define CYAN "\033[36m"
 
-std::string_view rm_path_file_name(std::string_view file_name)
+namespace fs = std::filesystem;
+
+const std::vector<std::string> end_prefixes = {"└── ", "    "};
+const std::vector<std::string> inner_prefixes = {"├── ", "│   "};
+
+bool is_hidden(const fs::directory_entry &entry) { return entry.path().filename().string()[0] == '.'; }
+
+void write_entry(const fs::directory_entry &entry, std::string_view prefix, unsigned int prefix_offset)
 {
-	unsigned long i = file_name.rfind('/');
-
-	if (i == std::string::npos)
-		return {};
-
-	return file_name.substr(i + 1, file_name.size());
+	if (entry.is_directory()) {
+		std::cout << std::setw(prefix_offset * 3) << WHITE << prefix << BLUE << entry.path().filename().string() << std::endl;
+	} else if (entry.is_regular_file()) {
+		std::cout << std::setw(prefix_offset * 3) << WHITE << prefix << entry.path().filename().string() << std::endl;
+	} else if (entry.is_symlink()) {
+		std::cout << std::setw(prefix_offset * 3) << WHITE << prefix << CYAN << entry.path().filename().string() << std::endl;
+	}
 }
 
-void tree_write(const std::filesystem::path &root_path)
+void walk(const fs::path &rooth_path, std::string prefix, unsigned int prefix_offset = 1)
 {
-	int fs_level = 0;
+	std::vector<fs::directory_entry> entries;
 
-	std::string_view prev_dir;
+	for (const auto &entry : fs::directory_iterator(rooth_path)) {
+		if (!is_hidden(entry)) {
+			entries.emplace_back(entry);
+		}
+	}
 
-	for (const auto &entry : std::filesystem::directory_iterator(root_path)) {
+	std::sort(std::begin(entries), std::end(entries), [](const fs::directory_entry &a, const fs::directory_entry &b) { return a.path().filename() < b.path().filename(); });
 
-		const std::string file_name = entry.path().string();
-		std::string_view curr_dir{rm_path_file_name(file_name)};
+	for (size_t i{0}; i < entries.size(); ++i) {
+		const fs::directory_entry entry{entries[i]};
+
+		std::vector<std::string> prefixes{(i == entries.size() - 1) ? end_prefixes : inner_prefixes};
+
+		write_entry(entry, prefixes[0], prefix_offset);
 
 		if (entry.is_directory()) {
-			if (curr_dir != prev_dir)
-				--fs_level;
-
-			prev_dir = curr_dir;
-			++fs_level;
-
-			std::cout << BLUE << std::setw(fs_level * 3) << curr_dir << '/' << '\n';
-
-		} else if (entry.is_regular_file()) {
-
-			std::cout << WHITE << std::setw(fs_level * 3) << "" << rm_path_file_name(file_name) << '\n';
-
-		} else if (entry.is_symlink()) {
-
-			std::cout << CYAN << std::setw(fs_level * 3) << "" << file_name << '\n';
+			walk(entry.path(), prefix + prefixes[1], ++prefix_offset);
 		}
 	}
 }
@@ -51,9 +53,11 @@ void tree_write(const std::filesystem::path &root_path)
 int main(int argc, char *argv[])
 {
 	try {
-		const auto root_path{argc >= 2 ? argv[1] : std::filesystem::current_path()};
-		tree_write(root_path);
-	} catch (std::filesystem::filesystem_error &fs_error) {
+		const auto root_path{argc >= 2 ? argv[1] : fs::current_path()};
+		std::cout << BLUE << root_path.string() << std::endl;
+		walk(root_path, "");
+
+	} catch (fs::filesystem_error &fs_error) {
 		std::cerr << "filesystem error: " << fs_error.what() << std::endl;
 	}
 
